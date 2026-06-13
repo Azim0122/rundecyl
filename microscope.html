@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>RUNDECYL — 3D микроскоп состава</title>
+      <link
+    href="https://fonts.googleapis.com/css2?family=Nunito+Sans:ital,opsz,wght@0,6..12,200..1000;1,6..12,200..1000&display=swap"
+    rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: transparent !important;
+            font-family: 'Nunito Sans', sans-serif;
+        }
+        canvas {
+            background: transparent !important;
+        }
+        #info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #0A0916;
+            background: transparent;
+            backdrop-filter: blur(8px);
+            padding: 12px 20px;
+            border-radius: 12px;
+            z-index: 100;
+            pointer-events: none;
+            font-size: 13px;
+            border-left: 3px solid #0A0916;
+        }
+        #info strong {
+            color: #0A0916;
+        }
+        #tooltip {
+            position: absolute;
+            display: none;
+            background: transparent;
+            border: 1px solid #0A0916;
+            border-radius: 10px;
+            padding: 10px 14px;
+            color: #0A0916;
+            font-size: 12px;
+            pointer-events: none;
+            max-width: 200px;
+            line-height: 1.5;
+            z-index: 200;
+        }
+        #tooltip b {
+            color: #0A0916;
+            display: block;
+            margin-bottom: 4px;
+        }
+        .controls-note {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: #0A0916;
+            background: transparent;
+            backdrop-filter: blur(4px);
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-family: monospace;
+            pointer-events: none;
+            z-index: 100;
+        }
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #0A0916;
+            font-size: 18px;
+            text-align: center;
+            z-index: 300;
+        }
+        @media (max-width: 600px) {
+            #info { font-size: 10px; top: 10px; left: 10px; padding: 6px 12px; }
+            .controls-note { font-size: 8px; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="loading">⏳ Загрузка 3D-графа...</div>
+<div id="info">
+    <strong>🔬 МИКРОСКОП СОСТАВА RUNDECYL</strong><br>
+    13 компонентов в синергии
+</div>
+<div id="tooltip"></div>
+<div class="controls-note">
+    🖱️ Мышь: вращение | ПКМ: панорамирование | Колесо: масштаб
+</div>
+
+<script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+<script src="https://unpkg.com/3d-force-graph@1.70.8/dist/3d-force-graph.min.js"></script>
+
+<script>
+const graphData = {
+    nodes: [
+        { id: 'Протеинат\nсеребра',      val: 20, color: '#C0C0C0', desc: 'Природный антисептик, уничтожает бактерии' },
+        { id: 'Оксид цинка',             val: 18, color: '#A8C8D0', desc: 'Нано-частицы, подсушивают, снимают воспаление' },
+        { id: 'Ундециленовая\nкислота',  val: 25, color: '#00C87A', desc: 'Эталон ВОЗ против грибка' },
+        { id: 'Ундециленат\nцинка',      val: 22, color: '#00A86B', desc: 'Пролонгированная противогрибковая защита' },
+        { id: 'Каолин',                  val: 35, color: '#F5F5DC', desc: 'Белая глина, абсорбирует до 200% влаги' },
+        { id: 'Диоксид\nкремния',        val: 20, color: '#C8D0D8', desc: 'Коллоидный, матирует, улучшает сыпучесть' },
+        { id: 'Порошок\nаррорута',       val: 15, color: '#F0E6D2', desc: 'Натуральный крахмал, придает шелковистость' },
+        { id: 'Порошок\nплодов Ши',      val: 16, color: '#D4A060', desc: 'Питает, восстанавливает гидролипидный баланс' },
+        { id: 'Розмарин',                val: 12, color: '#5A9A6A', desc: 'Улучшает микроциркуляцию, тонизирует' },
+        { id: 'Витамин Е',               val: 10, color: '#FFB347', desc: 'Антиоксидант, защищает от старения' },
+        { id: 'Витамины B',              val: 8,  color: '#FFD700', desc: 'B3, B5, B6: укрепляют барьер, заживляют' },
+        { id: 'Молочная\nкислота',       val: 14, color: '#F4A0A0', desc: 'Мягко отшелушивает, выравнивает тон' },
+        { id: 'Лизаты\nбактерий',        val: 14, color: '#40E0D0', desc: 'Пробиотики, восстанавливают микрофлору кожи' }
+    ],
+    links: [
+        { source: 'Протеинат\nсеребра',     target: 'Ундециленат\nцинка' },
+        { source: 'Ундециленовая\nкислота', target: 'Ундециленат\nцинка' },
+        { source: 'Ундециленовая\nкислота', target: 'Оксид цинка' },
+        { source: 'Каолин',                 target: 'Диоксид\nкремния' },
+        { source: 'Каолин',                 target: 'Порошок\nаррорута' },
+        { source: 'Порошок\nплодов Ши',     target: 'Витамин Е' },
+        { source: 'Витамин Е',              target: 'Витамины B' },
+        { source: 'Розмарин',               target: 'Молочная\nкислота' },
+        { source: 'Лизаты\nбактерий',       target: 'Протеинат\nсеребра' },
+        { source: 'Каолин',                 target: 'Лизаты\nбактерий' },
+        { source: 'Оксид цинка',            target: 'Молочная\nкислота' },
+        { source: 'Витамины B',             target: 'Лизаты\nбактерий' }
+    ]
+};
+
+window.addEventListener('load', () => {
+    const loadingEl = document.getElementById('loading');
+    const tooltip   = document.getElementById('tooltip');
+
+    try {
+        window.Graph = ForceGraph3D()(document.body)
+            .width(window.innerWidth)
+            .height(window.innerHeight)
+            .graphData(graphData)
+            
+            .nodeLabel(node => node.id.replace(/\n/g, ' '))
+            .nodeColor(node => node.color)
+            .nodeVal(node => node.val)
+            .nodeRelSize(5)
+            .nodeOpacity(0.95)
+            .linkColor(() => '#0A0916')
+            .linkOpacity(0.35)
+            .linkWidth(1.5)
+            .backgroundColor('rgba(0,0,0,0)')
+            .showNavInfo(false)
+            .onNodeHover(node => {
+                document.body.style.cursor = node ? 'pointer' : 'default';
+                if (node) {
+                    tooltip.style.display = 'block';
+                    tooltip.innerHTML = `<b>${node.id.replace(/\n/g, ' ')}</b>${node.desc}`;
+                } else {
+                    tooltip.style.display = 'none';
+                }
+            })
+            .onNodeClick(node => {
+                alert(`${node.id.replace(/\n/g, ' ')}\n\n${node.desc}`);
+            });
+
+        // Прозрачный рендерер
+        const renderer = Graph.renderer();
+        renderer.setClearColor('transparent', 0);
+
+        // Тултип следует за курсором
+        document.addEventListener('mousemove', e => {
+            tooltip.style.left = (e.clientX + 15) + 'px';
+            tooltip.style.top  = (e.clientY + 15) + 'px';
+        });
+
+
+        
+          Graph.cameraPosition({ x: 317, y: 59, z: -236 }, { x: 0, y: 0, z: 0 }, 0);
+
+        // Адаптив при изменении размера окна
+        window.addEventListener('resize', () => {
+            Graph.width(window.innerWidth).height(window.innerHeight);
+        });
+
+        loadingEl.style.display = 'none';
+
+    } catch (e) {
+        loadingEl.innerHTML = '❌ Ошибка: ' + e.message;
+        console.error(e);
+    }
+});
+</script>
+
+</body>
+</html>
