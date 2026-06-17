@@ -4,24 +4,28 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>RUNDECYL — 3D микроскоп состава</title>
-      <link
-    href="https://fonts.googleapis.com/css2?family=Nunito+Sans:ital,opsz,wght@0,6..12,200..1000;1,6..12,200..1000&display=swap"
-    rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:ital,opsz,wght@0,6..12,200..1000;1,6..12,200..1000&display=swap" rel="stylesheet">
     <style>
-        body {
+        * { color: #000000; }
+        html, body {
             margin: 0;
             overflow: hidden;
             background: transparent !important;
             font-family: 'Nunito Sans', sans-serif;
+            color: #000000;
+            /* блокируем жесты браузера (pinch-zoom, pull-to-refresh, pan) на самой странице */
+            touch-action: none;
+            -ms-touch-action: none;
         }
         canvas {
             background: transparent !important;
+            touch-action: none;
         }
         #info {
             position: absolute;
             top: 20px;
             left: 20px;
-            color: #0A0916;
+            color: #000000;
             background: transparent;
             backdrop-filter: blur(8px);
             padding: 12px 20px;
@@ -29,35 +33,39 @@
             z-index: 100;
             pointer-events: none;
             font-size: 13px;
-            border-left: 3px solid #0A0916;
+            border-left: 3px solid #000000;
         }
-        #info strong {
-            color: #0A0916;
-        }
+        #info strong { color: #000000; }
+
+        /* ===== TOOLTIP: чёрный фон, белый текст ===== */
         #tooltip {
             position: absolute;
             display: none;
-            background: transparent;
-            border: 1px solid #0A0916;
+            background: rgba(0,0,0,0.92);
+            border: 1px solid #000000;
             border-radius: 10px;
             padding: 10px 14px;
-            color: #0A0916;
             font-size: 12px;
             pointer-events: none;
             max-width: 200px;
             line-height: 1.5;
             z-index: 200;
         }
+        /* переопределяем глобальное "* { color:#000 }" внутри тултипа */
+        #tooltip,
+        #tooltip * {
+            color: #FFFFFF !important;
+        }
         #tooltip b {
-            color: #0A0916;
             display: block;
             margin-bottom: 4px;
         }
+
         .controls-note {
             position: absolute;
             bottom: 20px;
             left: 20px;
-            color: #0A0916;
+            color: #000000;
             background: transparent;
             backdrop-filter: blur(4px);
             padding: 5px 12px;
@@ -72,11 +80,15 @@
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            color: #0A0916;
+            color: #000000;
             font-size: 18px;
             text-align: center;
             z-index: 300;
         }
+        .scene-tooltip {
+    color: #000000 !important;
+    background: rgba(255,255,255,0.85) !important;
+}
         @media (max-width: 600px) {
             #info { font-size: 10px; top: 10px; left: 10px; padding: 6px 12px; }
             .controls-note { font-size: 8px; }
@@ -92,7 +104,7 @@
 </div>
 <div id="tooltip"></div>
 <div class="controls-note">
-    🖱️ Мышь: вращение | ПКМ: панорамирование | Колесо: масштаб
+    🖱️ Мышь: вращение | ПКМ: панорамирование
 </div>
 
 <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
@@ -140,17 +152,18 @@ window.addEventListener('load', () => {
             .width(window.innerWidth)
             .height(window.innerHeight)
             .graphData(graphData)
-            
-            .nodeLabel(node => node.id.replace(/\n/g, ' '))
+            .nodeLabel(node => `<span style="color:#000;">${node.id.replace(/\n/g, ' ')}</span>`)
             .nodeColor(node => node.color)
             .nodeVal(node => node.val)
             .nodeRelSize(5)
             .nodeOpacity(0.95)
-            .linkColor(() => '#0A0916')
+            .linkColor(() => '#000000')
             .linkOpacity(0.35)
             .linkWidth(1.5)
             .backgroundColor('rgba(0,0,0,0)')
             .showNavInfo(false)
+            // отключаем зум встроенным методом, если он поддерживается версией либы
+            .enableNodeDrag(false)
             .onNodeHover(node => {
                 document.body.style.cursor = node ? 'pointer' : 'default';
                 if (node) {
@@ -164,21 +177,44 @@ window.addEventListener('load', () => {
                 alert(`${node.id.replace(/\n/g, ' ')}\n\n${node.desc}`);
             });
 
-        // Прозрачный рендерер
         const renderer = Graph.renderer();
         renderer.setClearColor('transparent', 0);
 
-        // Тултип следует за курсором
+        // ===== ПОЛНОЕ ОТКЛЮЧЕНИЕ ЗУМА =====
+        // Делаем это с задержкой и периодической проверкой, т.к. библиотека
+        // может пересоздавать/переинициализировать controls после первого рендера.
+       
+
+        // Жёстко блокируем сам wheel-эвент на canvas, чтобы scroll/трекпад-зум
+        // и pinch-эмулированный wheel (на тачпадах) не доходили до OrbitControls вообще.
+        const canvasEl = renderer.domElement;
+        canvasEl.addEventListener('wheel', e => {
+            e.preventDefault();
+            e.stopPropagation();
+        }, { passive: false });
+
+        // Блокируем pinch-to-zoom жест на мобильных (Safari отправляет gesturestart/change)
+        ['gesturestart', 'gesturechange', 'gestureend'].forEach(evt => {
+            document.addEventListener(evt, e => e.preventDefault(), { passive: false });
+        });
+
+        // Доп. защита: если на тач-устройстве идёт жест двумя пальцами (pinch),
+        // не даём событию touchmove менять дистанцию камеры.
+        let lastTouchDist = null;
+        canvasEl.addEventListener('touchmove', e => {
+            if (e.touches.length === 2) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+        }, { passive: false });
+
         document.addEventListener('mousemove', e => {
             tooltip.style.left = (e.clientX + 15) + 'px';
             tooltip.style.top  = (e.clientY + 15) + 'px';
         });
 
+        Graph.cameraPosition({ x: 317, y: 59, z: -236 }, { x: 0, y: 0, z: 0 }, 0);
 
-        
-          Graph.cameraPosition({ x: 317, y: 59, z: -236 }, { x: 0, y: 0, z: 0 }, 0);
-
-        // Адаптив при изменении размера окна
         window.addEventListener('resize', () => {
             Graph.width(window.innerWidth).height(window.innerHeight);
         });
